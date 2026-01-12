@@ -1,8 +1,11 @@
-from airflow import DAG
-from airflow.providers.http.operators.http import HttpOperator
-from airflow.decorators import task
+import warnings
+# Suppress deprecation warnings from Airflow providers (temporary until providers are updated)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="airflow.providers.*")
+
+from airflow.sdk import DAG, task
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from datetime import datetime, timedelta
+import requests
 import json
 
 
@@ -38,14 +41,15 @@ with DAG(
     ## Step 2: Extract the NASA API Data (APOD) - Astronomy Picture of the Day [Extract Pipeline]
     ## https://api.nasa.gov/planetary/apod?api_key=2Hg6r3LFmtaAq6dp49VaThYK38P2k0wQz0QXotPN
 
-    extract_apod = HttpOperator(
-        task_id = "extract_apod",
-        http_conn_id = "nasa_api",      ## Connection ID defined in Airflow for NASA API
-        endpoint = "/planetary/apod",  ## Endpoint for the NASA API for APOD
-        method = "GET",
-        data = {"api_key": "{{conn.nasa_api.extra_dejson.api_key}}"}, ## Use the API key from the connection
-        response_filter = lambda response:response.json(), ## Convert response to JSON
-    )
+    @task
+    def extract_apod():
+        ## Make direct API call using requests
+        api_key = "2Hg6r3LFmtaAq6dp49VaThYK38P2k0wQz0QXotPN"
+        url = f"https://api.nasa.gov/planetary/apod?api_key={api_key}"
+        response = requests.get(url)
+        response.raise_for_status()  ## Raise an exception for bad status codes
+
+        return response.json()
 
 
     ## Step 3: Transform the data [Pick the information I need to save]
@@ -83,11 +87,10 @@ with DAG(
             )
         )
 
-    ## Step 5: Verfy the data DBViewer
+    ## Step 5: Verify the data DBViewer
 
     ## Extract
-    create_table() >> extract_apod ## Ensure the table is created before extracting the data
-    api_response = extract_apod.output
+    api_response = extract_apod()  ## Call the extract function
 
     ## Transform
     transformed_data = transform_apod_data(api_response)
@@ -97,3 +100,4 @@ with DAG(
 
 
     ## Step 6: Define the task Dependencies
+    create_table() >> api_response  ## Ensure the table is created before extracting the data
