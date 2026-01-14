@@ -9,6 +9,11 @@ import requests
 import json
 import time
 import logging
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 ## Define the DAG
@@ -46,7 +51,10 @@ with DAG(
     @task
     def extract_apod():
         ## Make direct API call using requests with retry logic and timeout
-        api_key = "2Hg6r3LFmtaAq6dp49VaThYK38P2k0wQz0QXotPN"
+        api_key = os.getenv("NASA_API_KEY")
+        if not api_key:
+            raise ValueError("NASA_API_KEY environment variable is not set. Please check your .env file.")
+
         url = f"https://api.nasa.gov/planetary/apod?api_key={api_key}"
 
         max_retries = 3

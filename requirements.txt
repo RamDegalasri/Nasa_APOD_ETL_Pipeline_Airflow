@@ -3,3 +3,6 @@
 # Providers needed for NASA APOD ETL pipeline
 apache-airflow-providers-http>=5.6.0
 apache-airflow-providers-postgres>=6.5.0
+
+# Environment variable management
+python-dotenv>=1.0.0
