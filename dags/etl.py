@@ -7,6 +7,8 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from datetime import datetime, timedelta
 import requests
 import json
+import time
+import logging
 
 
 ## Define the DAG
@@ -43,13 +45,51 @@ with DAG(
 
     @task
     def extract_apod():
-        ## Make direct API call using requests
+        ## Make direct API call using requests with retry logic and timeout
         api_key = "2Hg6r3LFmtaAq6dp49VaThYK38P2k0wQz0QXotPN"
         url = f"https://api.nasa.gov/planetary/apod?api_key={api_key}"
-        response = requests.get(url)
-        response.raise_for_status()  ## Raise an exception for bad status codes
 
-        return response.json()
+        max_retries = 3
+        timeout_seconds = 30
+
+        for attempt in range(max_retries):
+            try:
+                logging.info(f"Attempting NASA APOD API call (attempt {attempt + 1}/{max_retries})")
+                response = requests.get(url, timeout=timeout_seconds)
+                response.raise_for_status()  ## Raise an exception for bad status codes
+                logging.info("Successfully retrieved NASA APOD data")
+                return response.json()
+
+            except requests.exceptions.Timeout:
+                logging.warning(f"Request timed out (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 5  # Exponential backoff: 5s, 10s, 20s
+                    logging.info(f"Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                else:
+                    raise Exception(f"NASA APOD API request timed out after {max_retries} attempts")
+
+            except requests.exceptions.HTTPError as e:
+                if response.status_code == 504:  # Gateway Timeout
+                    logging.warning(f"Gateway timeout (attempt {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) * 10  # Longer backoff for 504 errors: 10s, 20s, 40s
+                        logging.info(f"Waiting {wait_time} seconds before retry due to gateway timeout...")
+                        time.sleep(wait_time)
+                    else:
+                        raise Exception(f"NASA APOD API returned 504 Gateway Timeout after {max_retries} attempts")
+                else:
+                    logging.error(f"HTTP error occurred: {e}")
+                    raise e
+
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Request exception occurred: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 5
+                    logging.info(f"Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                else:
+                    raise e
 
 
     ## Step 3: Transform the data [Pick the information I need to save]
